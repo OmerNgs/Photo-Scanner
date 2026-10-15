@@ -18,12 +18,18 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Build APK in Subfolder
+    - name: Fix JVM Target and Build APK
       run: |
         cd PhotoScannerByOmerNGS
+        
+        # app/build.gradle.kts içindeki jvmTarget veya java sürümlerini 17'ye otomatik günceleyelim
+        find . -name "build.gradle.kts" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
+        find . -name "build.gradle.kts" -exec sed -i 's/java 1.8/java 17/g' {} +
+        find . -name "build.gradle.kts" -exec sed -i 's/"1.8"/"17"/g' {} +
+        
         gradle wrapper
         chmod +x gradlew
-        ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx2048m" -Pkotlin.compiler.jvm.target=1.8
+        ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx2048m"
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
