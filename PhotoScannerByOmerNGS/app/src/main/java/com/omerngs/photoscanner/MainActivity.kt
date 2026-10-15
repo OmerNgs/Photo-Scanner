@@ -2,8 +2,10 @@ package com.omerngs.photoscanner
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -12,7 +14,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -31,8 +32,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 import com.google.zxing.BarcodeFormat
 import com.journeyapps.barcodescanner.BarcodeEncoder
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,12 +45,14 @@ class MainActivity : ComponentActivity() {
             val context = LocalContext.current
             val sharedPrefs = context.getSharedPreferences("PhotoScannerPrefs", Context.MODE_PRIVATE)
 
-            // Tema ve Klasör Yolunun Hafızada Saklanması (Kalıcılık)
             var isDarkTheme by remember { 
                 mutableStateOf(sharedPrefs.getBoolean("isDarkTheme", false)) 
             }
             var selectedFolderPath by remember { 
                 mutableStateOf(sharedPrefs.getString("folderPath", "Seçilmedi") ?: "Seçilmedi") 
+            }
+            var folderUriString by remember { 
+                mutableStateOf(sharedPrefs.getString("folderUri", "") ?: "") 
             }
 
             MaterialTheme(
@@ -63,9 +69,11 @@ class MainActivity : ComponentActivity() {
                             sharedPrefs.edit().putBoolean("isDarkTheme", it).apply()
                         },
                         selectedFolderPath = selectedFolderPath,
-                        onFolderSelected = { path ->
+                        folderUriString = folderUriString,
+                        onFolderSelected = { path, uriStr ->
                             selectedFolderPath = path
-                            sharedPrefs.edit().putString("folderPath", path).apply()
+                            folderUriString = uriStr
+                            sharedPrefs.edit().putString("folderPath", path).putString("folderUri", uriStr).apply()
                         }
                     )
                 }
@@ -80,24 +88,56 @@ fun ScannerScreen(
     isDarkTheme: Boolean,
     onThemeToggle: (Boolean) -> Unit,
     selectedFolderPath: String,
-    onFolderSelected: (String) -> Unit
+    folderUriString: String,
+    onFolderSelected: (String, String) -> Unit
 ) {
     val context = LocalContext.current
     var barcodeText by remember { mutableStateOf("") }
     var displayedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var statusMessage by remember { mutableStateOf("Klasör seçin ve barkod girin.") }
 
-    // 1. Klasör Seçme Launcher
+    // 1. Klasör Seçme Launcher (Kalıcı okuma izni ile)
     val folderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         uri?.let {
+            context.contentResolver.takePersistableUriPermission(
+                it,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
             val path = it.path ?: "Seçilen Klasör"
-            onFolderSelected(path)
+            onFolderSelected(path, it.toString())
+            statusMessage = "Klasör seçildi: $path"
         }
     }
 
-    // 2. Otomatik Kamera İzni İsteme
+    // 2. ZXing Canlı Kamera Tarayıcı Launcher
+    val scanLauncher = rememberLauncherForActivityResult(
+        contract = ScanContract()
+    ) { result ->
+        if (result.contents != null) {
+            barcodeText = result.contents
+            statusMessage = "Barkod okundu: ${result.contents}"
+            searchPhotoInFolder(context, folderUriString, barcodeText) { bitmap, msg ->
+                displayedBitmap = bitmap
+                statusMessage = msg
+            }
+        }
+    }
+
+    // Kamera İzni Kontrolü ve Tarayıcıyı Başlatma
+    val startCameraScan = {
+        val options = ScanOptions().apply {
+            setDesiredBarcodeFormats(ScanOptions.ALL_CODE_TYPES)
+            setPrompt("Barkodu kamera kılavuzuna ortalayın")
+            setCameraId(0)
+            setBeepEnabled(true)
+            setBarcodeImageEnabled(true)
+            setOrientationLocked(true)
+        }
+        scanLauncher.launch(options)
+    }
+
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -108,19 +148,19 @@ fun ScannerScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasCameraPermission = isGranted
-        statusMessage = if (isGranted) "Kamera izni verildi." else "Kamera izni reddedildi!"
+        if (isGranted) {
+            startCameraScan()
+        } else {
+            statusMessage = "Kamera izni reddedildi!"
+        }
     }
 
-    // Barkod işleme ve QR Kod üretme Fonksiyonu
+    // Barkod arama ve fotoğraf eşleme mantığı
     val processAndFindPhoto = {
         if (barcodeText.isNotBlank()) {
-            try {
-                val barcodeEncoder = BarcodeEncoder()
-                val bitmap = barcodeEncoder.encodeBitmap(barcodeText, BarcodeFormat.QR_CODE, 400, 400)
+            searchPhotoInFolder(context, folderUriString, barcodeText) { bitmap, msg ->
                 displayedBitmap = bitmap
-                statusMessage = "Barkod için QR Kod oluşturuldu: $barcodeText"
-            } catch (e: Exception) {
-                statusMessage = "Hata: ${e.message}"
+                statusMessage = msg
             }
         } else {
             statusMessage = "Lütfen geçerli bir barkod girin."
@@ -160,7 +200,7 @@ fun ScannerScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Klasör Seçme Alanı (Kalıcı)
+        // Klasör Seçme Alanı
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -184,7 +224,7 @@ fun ScannerScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Barkod Giriş ve Simgeli Butonlar (Enter Desteği ile)
+        // Barkod Giriş ve Simgeli Butonlar
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -206,13 +246,13 @@ fun ScannerScreen(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Kamera İzin Butonu
+            // Kamera Tarayıcı Açma Butonu
             IconButton(
                 onClick = {
-                    if (!hasCameraPermission) {
-                        permissionLauncher.launch(Manifest.permission.CAMERA)
+                    if (hasCameraPermission) {
+                        startCameraScan()
                     } else {
-                        statusMessage = "Kamera izni zaten verilmiş."
+                        permissionLauncher.launch(Manifest.permission.CAMERA)
                     }
                 },
                 modifier = Modifier
@@ -221,14 +261,14 @@ fun ScannerScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
-                    contentDescription = "Kamera İzni",
+                    contentDescription = "Barkod Tarayıcı",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
 
             Spacer(modifier = Modifier.width(4.dp))
 
-            // QR Kod Oluşturma Butonu
+            // QR Kod / Fotoğraf Getir Butonu
             IconButton(
                 onClick = { processAndFindPhoto() },
                 modifier = Modifier
@@ -237,7 +277,7 @@ fun ScannerScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.QrCode,
-                    contentDescription = "QR / Fotoğraf Getir",
+                    contentDescription = "Fotoğraf Getir",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
@@ -245,7 +285,7 @@ fun ScannerScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Sonuç ve QR Gösterme Alanı (Gereksiz siyah kutu kaldırıldı)
+        // Sonuç ve Görsel Gösterme Alanı
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -263,12 +303,13 @@ fun ScannerScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Image(
                             bitmap = displayedBitmap!!.asImageBitmap(),
-                            contentDescription = "Oluşturulan QR Kod",
+                            contentDescription = "Bulunan Fotoğraf",
                             modifier = Modifier
-                                .size(220.dp)
+                                .fillMaxHeight(0.8f)
+                                .fillMaxWidth()
                                 .clip(RoundedCornerShape(12.dp))
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = statusMessage,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -284,5 +325,58 @@ fun ScannerScreen(
                 }
             }
         }
+    }
+}
+
+// Seçilen klasör içerisinde barkod adıyla eşleşen görseli arayıp getiren fonksiyon
+fun searchPhotoInFolder(context: Context, folderUriStr: String, barcode: String, onResult: (Bitmap?, String) -> Unit) {
+    if (folderUriStr.isBlank()) {
+        // Klasör seçilmediyse doğrudan barkodun QR kodunu göster
+        try {
+            val encoder = BarcodeEncoder()
+            val bmp = encoder.encodeBitmap(barcode, BarcodeFormat.QR_CODE, 400, 400)
+            onResult(bmp, "Klasör seçilmediği için QR kod üretildi: $barcode")
+        } catch (e: Exception) {
+            onResult(null, "Hata: ${e.message}")
+        }
+        return
+    }
+
+    try {
+        val dirUri = Uri.parse(folderUriStr)
+        val rootDoc = DocumentFile.fromTreeUri(context, dirUri)
+        if (rootDoc == null || !rootDoc.isDirectory) {
+            onResult(null, "Geçersiz klasör.")
+            return
+        }
+
+        // Klasördeki dosyalar arasında barkod adıyla eşleşen görseli ara (örn: 86940573.jpg, 86940573.png)
+        var foundFile: DocumentFile? = null
+        for (file in rootDoc.listFiles()) {
+            val fileName = file.name ?: continue
+            val nameWithoutExt = fileName.substringBeforeLast(".")
+            if (nameWithoutExt.equals(barcode, ignoreCase = true)) {
+                foundFile = file
+                break
+            }
+        }
+
+        if (foundFile != null) {
+            val inputStream = context.contentResolver.openInputStream(foundFile.uri)
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            inputStream?.close()
+            if (bitmap != null) {
+                onResult(bitmap, "Fotoğraf başarıyla getirildi: ${foundFile.name}")
+            } else {
+                onResult(null, "Dosya okunamadı veya geçerli bir görsel değil.")
+            }
+        } else {
+            // Fotoğraf bulunamazsa yedek olarak QR kod üretip gösterelim
+            val encoder = BarcodeEncoder()
+            val bmp = encoder.encodeBitmap(barcode, BarcodeFormat.QR_CODE, 400, 400)
+            onResult(bmp, "Klasörde '$barcode' adında fotoğraf bulunamadı, QR kod üretildi.")
+        }
+    } catch (e: Exception) {
+        onResult(null, "Arama hatası: ${e.message}")
     }
 }
