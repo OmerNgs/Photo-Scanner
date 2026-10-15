@@ -1,11 +1,11 @@
 package com.omerngs.photoscanner
 
-import android.app.Activity
-import android.content.Intent
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
-import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -26,16 +26,28 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.google.zxing.BarcodeFormat
+import com.journeyapps.barcodescanner.BarcodeEncoder
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            var isDarkTheme by remember { mutableStateOf(false) }
+            val context = LocalContext.current
+            val sharedPrefs = context.getSharedPreferences("PhotoScannerPrefs", Context.MODE_PRIVATE)
+
+            // Tema ve Klasör Yolunun Hafızada Saklanması (Kalıcılık)
+            var isDarkTheme by remember { 
+                mutableStateOf(sharedPrefs.getBoolean("isDarkTheme", false)) 
+            }
+            var selectedFolderPath by remember { 
+                mutableStateOf(sharedPrefs.getString("folderPath", "Seçilmedi") ?: "Seçilmedi") 
+            }
 
             MaterialTheme(
                 colorScheme = if (isDarkTheme) darkColorScheme() else lightColorScheme()
@@ -46,7 +58,15 @@ class MainActivity : ComponentActivity() {
                 ) {
                     ScannerScreen(
                         isDarkTheme = isDarkTheme,
-                        onThemeToggle = { isDarkTheme = it }
+                        onThemeToggle = { 
+                            isDarkTheme = it
+                            sharedPrefs.edit().putBoolean("isDarkTheme", it).apply()
+                        },
+                        selectedFolderPath = selectedFolderPath,
+                        onFolderSelected = { path ->
+                            selectedFolderPath = path
+                            sharedPrefs.edit().putString("folderPath", path).apply()
+                        }
                     )
                 }
             }
@@ -56,37 +76,54 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
+fun ScannerScreen(
+    isDarkTheme: Boolean,
+    onThemeToggle: (Boolean) -> Unit,
+    selectedFolderPath: String,
+    onFolderSelected: (String) -> Unit
+) {
+    val context = LocalContext.current
     var barcodeText by remember { mutableStateOf("") }
-    var selectedFolderPath by remember { mutableStateOf("Seçilmedi") }
-    var capturedImageBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var displayedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var statusMessage by remember { mutableStateOf("Klasör seçin ve barkod girin.") }
 
-    // Klasör Seçme Launcher (Storage Access Framework)
+    // 1. Klasör Seçme Launcher
     val folderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         uri?.let {
-            selectedFolderPath = it.path ?: "Seçilen Klasör"
+            val path = it.path ?: "Seçilen Klasör"
+            onFolderSelected(path)
         }
     }
 
-    // Kamera Açma Launcher
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val bitmap = result.data?.extras?.get("data") as? Bitmap
-            if (bitmap != null) {
-                capturedImageBitmap = bitmap
-            }
-        }
+    // 2. Otomatik Kamera İzni İsteme
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        )
     }
 
-    // Otomatik Fotoğraf Getir / QR Oluştur Fonksiyonu
-    val processBarcode = {
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasCameraPermission = isGranted
+        statusMessage = if (isGranted) "Kamera izni verildi." else "Kamera izni reddedildi!"
+    }
+
+    // Barkod işleme ve QR Kod üretme Fonksiyonu
+    val processAndFindPhoto = {
         if (barcodeText.isNotBlank()) {
-            qrCodeBitmap = createSimpleQrPlaceholder(barcodeText)
+            try {
+                val barcodeEncoder = BarcodeEncoder()
+                val bitmap = barcodeEncoder.encodeBitmap(barcodeText, BarcodeFormat.QR_CODE, 400, 400)
+                displayedBitmap = bitmap
+                statusMessage = "Barkod için QR Kod oluşturuldu: $barcodeText"
+            } catch (e: Exception) {
+                statusMessage = "Hata: ${e.message}"
+            }
+        } else {
+            statusMessage = "Lütfen geçerli bir barkod girin."
         }
     }
 
@@ -123,7 +160,7 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Klasör Seçme Alanı
+        // Klasör Seçme Alanı (Kalıcı)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -147,7 +184,7 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Barkod Giriş ve Simgeli Butonlar
+        // Barkod Giriş ve Simgeli Butonlar (Enter Desteği ile)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -162,18 +199,21 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
                     imeAction = ImeAction.Done
                 ),
                 keyboardActions = KeyboardActions(
-                    onDone = { processBarcode() }
+                    onDone = { processAndFindPhoto() }
                 ),
                 shape = RoundedCornerShape(12.dp)
             )
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Kamera Açma Butonu
+            // Kamera İzin Butonu
             IconButton(
                 onClick = {
-                    val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                    cameraLauncher.launch(intent)
+                    if (!hasCameraPermission) {
+                        permissionLauncher.launch(Manifest.permission.CAMERA)
+                    } else {
+                        statusMessage = "Kamera izni zaten verilmiş."
+                    }
                 },
                 modifier = Modifier
                     .size(50.dp)
@@ -181,7 +221,7 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
             ) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
-                    contentDescription = "Kamera Aç",
+                    contentDescription = "Kamera İzni",
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
@@ -190,56 +230,22 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
 
             // QR Kod Oluşturma Butonu
             IconButton(
-                onClick = { processBarcode() },
+                onClick = { processAndFindPhoto() },
                 modifier = Modifier
                     .size(50.dp)
                     .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp))
             ) {
                 Icon(
                     imageVector = Icons.Default.QrCode,
-                    contentDescription = "QR Oluştur",
+                    contentDescription = "QR / Fotoğraf Getir",
                     tint = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Dikey Uyumlu Küçük Tarayıcı Alanı (Altıgen / 4 Çizgili Kılavuz)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(180.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color.Black),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "Kamera / Barkod Alanı (Dikey)",
-                color = Color.Gray,
-                style = MaterialTheme.typography.bodySmall
-            )
-
-            // 4 Çizgili / Altıgen Tarama Kılavuzu
-            Box(
-                modifier = Modifier
-                    .width(180.dp)
-                    .height(90.dp)
-                    .border(2.dp, Color.Green, RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(6.dp)
-                        .border(1.dp, Color.White.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Sonuç ve Görsel Alanı
+        // Sonuç ve QR Gösterme Alanı (Gereksiz siyah kutu kaldırıldı)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -248,32 +254,35 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (capturedImageBitmap != null) {
-                    Image(
-                        bitmap = capturedImageBitmap!!.asImageBitmap(),
-                        contentDescription = "Çekilen Fotoğraf",
-                        modifier = Modifier.fillMaxSize()
-                    )
+                if (displayedBitmap != null) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Image(
+                            bitmap = displayedBitmap!!.asImageBitmap(),
+                            contentDescription = "Oluşturulan QR Kod",
+                            modifier = Modifier
+                                .size(220.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = statusMessage,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 } else {
                     Text(
-                        text = if (barcodeText.isNotBlank()) "Barkod İşlendi: $barcodeText" else "Klasör seçin, barkod girin veya kamerayı açın.",
+                        text = statusMessage,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(16.dp)
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
             }
         }
     }
-}
-
-fun createSimpleQrPlaceholder(text: String): Bitmap {
-    val width = 200
-    val height = 200
-    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
-    bmp.eraseColor(android.graphics.Color.WHITE)
-    return bmp
 }
