@@ -18,22 +18,25 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Fix Everything and Build APK
+    - name: Fix Code Errors and Build APK
       run: |
         cd PhotoScannerByOmerNGS
         
-        # 1. Gradle doğrulama kontrolünü tamamen kapat (JVM Uyumsuzluk Kontrolünü Devre Dışı Bırak)
+        # 1. JVM doğrulamasını kapat
         if [ ! -f "gradle.properties" ]; then
           touch gradle.properties
         fi
         echo "kotlin.jvm.target.validation.mode=IGNORE" >> gradle.properties
         
-        # 2. app/build.gradle.kts veya build.gradle dosyasındaki tüm 1.8 ifadelerini 17 yap
+        # 2. build.gradle içindeki Java sürümlerini eşitle
         find . -name "build.gradle*" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
         find . -name "build.gradle*" -exec sed -i 's/"1.8"/"17"/g' {} +
         find . -name "build.gradle*" -exec sed -i "s/'1.8'/'17'/g" {} +
         
-        # 3. Wrapper oluştur ve derle
+        # 3. MainActivity.kt içindeki hatalı 'singleLine' kullanımını otomatik 'maxLines = 1' veya 'maxLines' ile değiştir
+        find app/src/main -name "*.kt" -exec sed -i 's/singleLine/maxLines = 1/g' {} +
+        
+        # 4. Wrapper oluştur ve APK derle
         gradle wrapper
         chmod +x gradlew
         ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m"
