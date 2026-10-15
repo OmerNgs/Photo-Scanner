@@ -18,11 +18,19 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Build APK
+    - name: Find Project and Build APK
       run: |
-        PROJ_DIR=$(find . -name "build.gradle*" -exec dirname {} \; | head -n 1)
-        cd "$PROJ_DIR"
-        gradle wrapper
+        # build.gradle.kts dosyasının olduğu gerçek klasörü bul ve oraya git
+        TARGET_DIR=$(find . -name "build.gradle.kts" -exec dirname {} \; | head -n 1)
+        echo "Proje klasörü bulundu: $TARGET_DIR"
+        cd "$TARGET_DIR"
+        
+        # Eğer gradlew dosyası yoksa oluştur
+        if [ ! -f "gradlew" ]; then
+          gradle wrapper
+        fi
+        
+        chmod +x gradlew
         ./gradlew assembleDebug
 
     - name: Upload APK
