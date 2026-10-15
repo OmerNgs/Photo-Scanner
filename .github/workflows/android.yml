@@ -23,7 +23,7 @@ jobs:
         cd PhotoScannerByOmerNGS
         gradle wrapper
         chmod +x gradlew
-        ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx2048m"
+        ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx2048m" -Pkotlin.compiler.jvm.target=1.8
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
