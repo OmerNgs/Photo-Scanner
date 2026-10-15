@@ -12,10 +12,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up JDK 8
+    - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
-        java-version: '8'
+        java-version: '17'
         distribution: 'temurin'
 
     - name: Find Project and Build APK
@@ -28,7 +28,7 @@ jobs:
         fi
         
         chmod +x gradlew
-        ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx2048m"
+        ./gradlew assembleDebug -Pandroid.compileSdk=34 -Dorg.gradle.jvmargs="-Xmx2048m"
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
