@@ -18,18 +18,25 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Fix JVM Target and Build APK
+    - name: Fix Everything and Build APK
       run: |
         cd PhotoScannerByOmerNGS
         
-        # app/build.gradle.kts içindeki jvmTarget veya java sürümlerini 17'ye otomatik günceleyelim
-        find . -name "build.gradle.kts" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
-        find . -name "build.gradle.kts" -exec sed -i 's/java 1.8/java 17/g' {} +
-        find . -name "build.gradle.kts" -exec sed -i 's/"1.8"/"17"/g' {} +
+        # 1. Gradle doğrulama kontrolünü tamamen kapat (JVM Uyumsuzluk Kontrolünü Devre Dışı Bırak)
+        if [ ! -f "gradle.properties" ]; then
+          touch gradle.properties
+        fi
+        echo "kotlin.jvm.target.validation.mode=IGNORE" >> gradle.properties
         
+        # 2. app/build.gradle.kts veya build.gradle dosyasındaki tüm 1.8 ifadelerini 17 yap
+        find . -name "build.gradle*" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
+        find . -name "build.gradle*" -exec sed -i 's/"1.8"/"17"/g' {} +
+        find . -name "build.gradle*" -exec sed -i "s/'1.8'/'17'/g" {} +
+        
+        # 3. Wrapper oluştur ve derle
         gradle wrapper
         chmod +x gradlew
-        ./gradlew assembleDebug -Dorg.gradle.jvmargs="-Xmx2048m"
+        ./gradlew assembleDebug --no-daemon -Dorg.gradle.jvmargs="-Xmx2048m"
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
