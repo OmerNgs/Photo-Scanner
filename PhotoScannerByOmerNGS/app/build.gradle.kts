@@ -49,7 +49,10 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     
-    // QR ve Barkod İşlemleri İçin
+    // QR ve Barkod Kütüphanesi
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
+
+    // Dosya ve Klasör Okuma İçin DocumentFile Kütüphanesi (Eksik Olan)
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }
