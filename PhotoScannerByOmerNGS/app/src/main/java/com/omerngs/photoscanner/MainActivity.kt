@@ -62,7 +62,7 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
     var capturedImageBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var qrCodeBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
-    // 1. Klasör Seçme Launcher (Storage Access Framework)
+    // Klasör Seçme Launcher (Storage Access Framework)
     val folderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
@@ -71,8 +71,7 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
         }
     }
 
-    // 2. Kamera Açma Launcher
-    const val CAMERA_SERVICE = 101 // placeholder
+    // Kamera Açma Launcher
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -87,8 +86,6 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
     // Otomatik Fotoğraf Getir / QR Oluştur Fonksiyonu
     val processBarcode = {
         if (barcodeText.isNotBlank()) {
-            // Barkod yazıldığında veya Enter'a basıldığında tetiklenir
-            // Örnek QR Kod oluşturma simülasyonu
             qrCodeBitmap = createSimpleQrPlaceholder(barcodeText)
         }
     }
@@ -273,7 +270,6 @@ fun ScannerScreen(isDarkTheme: Boolean, onThemeToggle: (Boolean) -> Unit) {
     }
 }
 
-// Basit bir placeholder QR/Bitmap oluşturucu yardımcı fonksiyonu
 fun createSimpleQrPlaceholder(text: String): Bitmap {
     val width = 200
     val height = 200
