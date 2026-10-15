@@ -18,14 +18,12 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-
-    - name: Build APK with System Gradle
+    - name: Build APK
       run: |
         PROJ_DIR=$(find . -name "build.gradle*" -exec dirname {} \; | head -n 1)
         cd "$PROJ_DIR"
-        gradle assembleDebug
+        gradle wrapper
+        ./gradlew assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
