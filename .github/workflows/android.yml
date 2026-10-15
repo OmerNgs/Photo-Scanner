@@ -18,16 +18,14 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Build APK with Gradle
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+
+    - name: Build APK with System Gradle
       run: |
-        PROJ_DIR=$(find . -maxdepth 2 -name "gradlew" -exec dirname {} \;)
-        if [ -n "$PROJ_DIR" ]; then
-          cd "$PROJ_DIR"
-          chmod +x gradlew
-          ./gradlew assembleDebug
-        else
-          echo "gradlew dosyası bulunamadı!" && exit 1
-        fi
+        PROJ_DIR=$(find . -name "build.gradle*" -exec dirname {} \; | head -n 1)
+        cd "$PROJ_DIR"
+        gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
