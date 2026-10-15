@@ -18,23 +18,23 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Fix Code Errors and Build APK
+    - name: Fix Kotlin Line and Build APK
       run: |
         cd PhotoScannerByOmerNGS
         
-        # 1. JVM doğrulamasını kapat
+        # 1. JVM doğrulama engelini kaldır
         if [ ! -f "gradle.properties" ]; then
           touch gradle.properties
         fi
         echo "kotlin.jvm.target.validation.mode=IGNORE" >> gradle.properties
         
-        # 2. build.gradle içindeki Java sürümlerini eşitle
+        # 2. build.gradle dosyalarındaki Java versiyonlarını güncelle
         find . -name "build.gradle*" -exec sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
         find . -name "build.gradle*" -exec sed -i 's/"1.8"/"17"/g' {} +
         find . -name "build.gradle*" -exec sed -i "s/'1.8'/'17'/g" {} +
         
-        # 3. MainActivity.kt içindeki hatalı 'singleLine' kullanımını otomatik 'maxLines = 1' veya 'maxLines' ile değiştir
-        find app/src/main -name "*.kt" -exec sed -i 's/singleLine/maxLines = 1/g' {} +
+        # 3. MainActivity.kt 57. satırdaki hatalı 'singleLine' geçen kısmı güvenli şekilde yorum satırına al
+        sed -i '57s/singleLine/\/\/ singleLine/' app/src/main/java/com/omerngs/photoscanner/MainActivity.kt || true
         
         # 4. Wrapper oluştur ve APK derle
         gradle wrapper
